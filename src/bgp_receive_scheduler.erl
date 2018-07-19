@@ -297,7 +297,7 @@ decode_open(ConnectionFsmPid, Data) ->
             throw_open_decode_error(?BGP_ERROR_SUB_CODE_UNSUPPORTED_VERSION_NUMBER, <<SupportedVersion:16>>)
     end,
     if
-        MyAs == 7675 ->             %% TODO: replace by real check
+        MyAs == 2 ->             %% TODO: replace by real check
             ok;
         true ->
             throw_open_decode_error(?BGP_ERROR_SUB_CODE_BAD_PEER_AS)

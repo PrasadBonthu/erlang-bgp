@@ -161,6 +161,6 @@
 %% TODO: We should use port 179 but that's a pain in the neck because it is a privileged port. For now, during initial
 %% testing we use port 1790 instead so that we don't have to run as root.
 %% 
--define(BGP_TCP_LISTEN_PORT, 1790).
+-define(BGP_TCP_LISTEN_PORT, 179).
 
 
