@@ -31,7 +31,7 @@
 
 %% public API
 
--export([start_link/2,
+-export([start_link/2,start_link/3,
          stop/1,                %% TODO: Figure out what the proper way is to shut down and FSM
          manual_start/1,
          manual_stop/1,
@@ -94,6 +94,11 @@ start_link(Direction, RemoteAddress) ->
     io:format("API: start_link Direction=~p RemoteAddress=~p~n", [Direction, RemoteAddress]),
     Name = list_to_atom(lists:flatten(io_lib:format("bgp_cnx_fsm_~p_out", [RemoteAddress]))),
     gen_fsm:start_link({local, Name}, ?MODULE, [Direction, RemoteAddress], [{debug, [trace, log, statistics]}]).
+
+start_link(Direction, RemoteAddress, Socket) ->
+    io:format("API: start_link Direction=~p RemoteAddress=~p~n", [Direction, RemoteAddress]),
+    Name = list_to_atom(lists:flatten(io_lib:format("bgp_cnx_fsm_~p_out", [RemoteAddress]))),
+    gen_fsm:start_link({local, Name}, ?MODULE, [Direction, RemoteAddress, Socket], [{debug, [trace, log, statistics]}]).
 
 stop(Pid) ->
     io:format("API: stop~n"),
@@ -254,7 +259,20 @@ receive_invalid_update(Pid) ->
 init([Direction, RemoteAddress]) ->
     io:format("Callback: init~n"),
     State = #connection_state{direction = Direction, remote_address = RemoteAddress},
-    {ok, state_idle, State}.
+    {ok, state_idle, State};
+
+init([Direction, RemoteAddress, Socket]) ->
+    io:format("Callback: init~n"),
+   % State = #connection_state{direction = Direction, remote_address = RemoteAddress, socket = Socket},
+    io:format("action_initialize_connection_for_incoming~n"),
+   % #connection_state{remote_address = RemoteAddress, direction = Direction} = State,
+    Self = self(),
+    {ok, SendSchedulerPid} = bgp_send_scheduler:start_link(RemoteAddress, Direction, Socket),
+    {ok, ReceiverPid} = bgp_receive_scheduler:start_link(Self, RemoteAddress, Direction, Socket),
+    State = #connection_state{socket = Socket, direction = Direction, remote_address = RemoteAddress,
+                           send_scheduler_pid = SendSchedulerPid,
+                           receiver_pid = ReceiverPid},
+	{ok, state_connect, State}.
 
 %%----------------------------------------------------------------------------------------------------------------------
 
@@ -529,7 +547,7 @@ action_start_listening_for_connection(State) ->
 action_send_open(State) ->
     io:format("action_send_open~n"),
     #connection_state{send_scheduler_pid = SendSchedulerPid} = State,
-    Open = #bgp_open{my_as=7675, identifier=100},       %%% TODO: get real parameters
+    Open = #bgp_open{my_as=1, identifier={127,0,0,4}},       %%% TODO: get real parameters
     ok = bgp_send_scheduler:send_open(SendSchedulerPid, Open),
     State.
 
@@ -732,6 +750,23 @@ state_connect(Event, State)
     {next_state, state_open_confirm, State7};
 
 %%- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+%%- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+state_connect(Event, State)
+  when (Event == event_receive_open) ->
+%    State1 = action_stop_connect_retry_timer(State),
+ %   State2 = action_stop_delay_open_timer(State1),
+  %  State3 = action_complete_bgp_initialization(State2),
+    State4 = action_send_open(State),
+   % State5 = action_send_keep_alive(State4),
+    %State6 = action_start_keep_alive_timer(State5),
+   % State7 = action_start_hold_timer(State6),
+    % TODO: If the value of the autonomous system field is the same as the local Autonomous System number, set the
+    %       connection status to an internal connection; otherwise it will be "external".
+    {next_state, state_open_sent, State4};
+
+%%- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
 
 state_connect(Event, State) 
   when (Event == event_bgp_header_error) 
@@ -921,6 +956,18 @@ state_active(_AnyOtherEvent, State)  ->
     State4 = action_increment_connect_retry_counter(State3),
     State5 = action_perform_peer_oscillation_damping(State4),
     {next_state, state_idle, State5}.
+
+%%- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+state_open_sent(Event, State)
+  when (Event == event_receive_keep_alive) ->
+State1 = action_stop_delay_open_timer(State),
+    State2 = action_stop_connect_retry_timer(State1),
+    State3 = action_send_keep_alive(State2),
+    %% TODO: determine negotiated hold time and keep-alive time. Any other negotiated values?
+    State4 = action_start_keep_alive_timer(State3),
+    State5 = action_start_hold_timer(State4),
+    {next_state, state_open_confirm, State5};
 
 %%----------------------------------------------------------------------------------------------------------------------
 

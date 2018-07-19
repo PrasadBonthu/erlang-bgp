@@ -128,7 +128,11 @@ handle_call({incoming_connection, Socket}, _From, State) ->
             gen_tcp:close(Socket);
         [{Address, void}] ->
             io:format("got connection from registered address ~p (TODO:)~n", [Address]),
-            gen_tcp:close(Socket)
+	   {ok,ConnFsmPid}= bgp_connection_fsm:start_link(incoming,Address,Socket)
+	%	bgp_connection_fsm:send_tcp_established(ConnFsmPid),
+	%	bgp_receive_scheduler:start_link(ConnFsmPid,Address, incoming, Socket)
+	%%%%%  bgp_connection_fsm:manual_start(ConnFsmPid)
+            %%gen_tcp:close(Socket)
     end,
     {reply, ok, State}.
 
